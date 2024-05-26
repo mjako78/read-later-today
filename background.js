@@ -2,48 +2,44 @@ const READ_LATER_FOLDER = "Read Later";
 const BOOKMARKS_BAR_ID = "1";
 
 chrome.action.onClicked.addListener(async (tab) => {
-  console.log("--> clicked!", tab);
   let today = new Date().toISOString().split('T')[0];
-  console.log("... today:", today);
-  searchFolder(BOOKMARKS_BAR_ID, READ_LATER_FOLDER).then(readLaterFolder => {
-    console.log("... readLaterFolder:", readLaterFolder);
-    let readLaterFolderId = null;
-    if (readLaterFolder == null) {
-      createFolder(READ_LATER_FOLDER, BOOKMARKS_BAR_ID).then(id => {
-        console.log("... id:", id);
-        readLaterFolderId = id;
+  upsertFolder(BOOKMARKS_BAR_ID, READ_LATER_FOLDER).then(readLaterFolderId => {
+    upsertFolder(readLaterFolderId, today).then(todayFolderId => {
+      chrome.bookmarks.create({
+        parentId: todayFolderId,
+        title: tab.title,
+        url: tab.url
+      }).catch(err => {
+        console.error("Cannot create bookmark for current tab", err);
       })
-    } else {
-      console.log("... exists!");
-      readLaterFolderId = readLaterFolder.id;
-    }
-    console.log("... readLaterFolderId:", readLaterFolderId);
+    }).catch(err => {
+      console.error(`Cannot get/create folder ${today}`, err);
+    })
   }).catch(err => {
-    console.error(`[ERR ] Cannot find folder ${READ_LATER_FOLDER}`);
+    console.error(`Cannot get/create folder ${READ_LATER_FOLDER}`, err);
   })
 });
 
-async function searchFolder(parentId, folderName) {
-  console.log("--> searchFolder");
-  console.log("... parentId: ", parentId);
-  console.log("... folderName: ", folderName);
-  const resp = await chrome.bookmarks.getSubTree(parentId);
-  if (resp.length == 0) {
-    throw new Error(`Cannot find folder with id ${parentId}`);
-  }
-  let folder = resp[0].children.filter(child => folderName == child.title);
-  if (folder.length == 0) {
-    return null;
-  }
-  if (folder.length > 1) {
-    console.warn(`Found ${folder.length} folders with name ${folderName}; keep the first`);
-  }
-  return folder[0];
-}
-
-function createFolder(folderName, parentId) {
-  return chrome.bookmarks.create({
-    parentId: parentId,
-    title: folderName
-  }).then(resp => resp.id);
+async function upsertFolder(parentId, folderName) {
+  return chrome.bookmarks.getSubTree(parentId).then(resp => {
+    if (resp.length == 0) {
+      throw new Error(`Cannot find folder with id ${parentId}`);
+    }
+    if (resp.length > 1) {
+      console.warn(`Found ${resp.length} folders; keep the first`);
+    }
+    let children = resp[0].children.filter(child => folderName == child.title);
+    if (children.length == 0) {
+      return chrome.bookmarks.create({
+        parentId: parentId,
+        title: folderName
+      }).then(resp => resp.id);
+    }
+    if (children.length > 1) {
+      console.warn(`Found ${folder.length} folders with name ${folderName}; keep the first`);
+    }
+    return new Promise(resolve => {
+      resolve(children[0].id);
+    });
+  })
 }
